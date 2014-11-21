@@ -32,6 +32,7 @@ unsigned long
   timer = 0, 
   blau_ple_timer = 0, 
   start_timer = 0,
+  last_run_time = 0,
   current_time = 0;
 
 void setup() 
@@ -50,8 +51,9 @@ void setup()
 
 void loop()
 {
+  // Prenem mesures als diposits
   long 
-     distanciax = ultrasonic.Ranging(CM),      // Prenem la mesura al diposit de dalt
+     distanciax = ultrasonic.Ranging(CM),
      distancia_verd = ultrasonic2.Ranging(CM);
   int blau_ple = ! digitalRead(sensorblau);
   Serial.print("distancia_dalt: ");
@@ -59,15 +61,17 @@ void loop()
   Serial.print("distancia_verd: ");
   Serial.println(distancia_verd);
   
+  // Milisegons des de inici arduino (absolut)
   timer = millis();
   
-  if ( distanciax > 30 )
+  // Si deposit dalt buit i han pasat +10 segons des de ultim funcionament
+  if ( distanciax > 30 && last_run_time + 10000 < timer )
   {
     if (start_timer < 1) start_timer = timer;
     current_time = timer-start_timer;
     
     // Bomba Aljub ON si deposito verde vacio
-    if (distancia_verd >= 40 && ! blau_ple && (blau_ple_timer + 10000 < timer ))
+    if (distancia_verd >= 60 && ! blau_ple && (blau_ple_timer + 5000 < timer ))
     {
      digitalWrite(releon1,HIGH);  // Activamos el relé 1 y la bomba Aljub
      digitalWrite(rele1,HIGH);  // Activamos el relé 1 y la bomba Aljub
@@ -77,7 +81,7 @@ void loop()
     }
     
     // Paramos bomba Aljub si deposito verde lleno
-    if ((distancia_verd < 40 || blau_ple) && (blau_ple_timer == 0))
+    if ((distancia_verd < 50 || blau_ple) && (blau_ple_timer == 0))
     {
      digitalWrite(releon1,LOW);
      digitalWrite(rele1,LOW);
@@ -114,6 +118,7 @@ void loop()
   else
   {
        blau_ple_timer = 0;
+       last_run_time = current_time;
        start_timer = 0;
        distanciax = ultrasonic.Ranging(CM);
        digitalWrite(rele1,LOW);   // Desactivamos el relé 1 y la bomba Aljub
@@ -127,6 +132,6 @@ void loop()
        Serial.println(" bomba_altura: off");
   }
      
-  delay(1000);
+  delay(2000);
 }
 
