@@ -26,7 +26,8 @@ int
    rele2 = 9,
    releon2 = 10,
    sensoron = 4,
-   sensorblau = 3;
+   sensorblau = 3,
+   start = 0;
 
 unsigned long 
   timer = 0, 
@@ -65,7 +66,9 @@ void loop()
   timer = millis();
   
   // Si deposit dalt buit i han pasat +10 segons des de ultim funcionament
-  if ( distanciax > 30 && last_run_time + 10000 < timer )
+  if ( distanciax > 40  && last_run_time + 10000 < timer ) start = 1;
+
+  if (start == 1)
   {
     if (start_timer < 1) start_timer = timer;
     current_time = timer-start_timer;
@@ -90,9 +93,10 @@ void loop()
          Serial.print(current_time);
          Serial.println(" deposit_blau: full");
      }
-     else
+     else {
           Serial.print(current_time);
           Serial.println("deposit_verd: full");
+     }
      Serial.print(current_time);
      Serial.println(" aljub: off");
     }
@@ -114,9 +118,11 @@ void loop()
        Serial.println(" bomba_altura: off ");
       }
       
-  }  
-  else
+  }
+
+  if ( distanciax < 20 )
   {
+       start = 0;
        blau_ple_timer = 0;
        last_run_time = current_time;
        start_timer = 0;
