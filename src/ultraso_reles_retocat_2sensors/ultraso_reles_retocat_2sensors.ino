@@ -1,21 +1,12 @@
 #include <Ultrasonic.h>
-
-
 #include <Ultrasonic.h>
 #include <stdarg.h>
-/*
-void SerialPrintf(char *fmt, ... )
-{
-   char tmp[128]; // resulting string limited to 128 chars
 
-   va_list args;
-   va_start (args, fmt );
-   vsnprintf(tmp, 128, fmt, args);
-   va_end (args);
-
-   Serial.print(tmp);
-}
-*/
+#define distancia_verd_max 80
+#define distancia_verd_min 50
+#define distancia_dalt_max 40
+#define distancia_dalt_min 20
+#define distancia_dalt_min_limit 5
 
 Ultrasonic ultrasonic(11,12);  // trig, echo del densor del diposit de dalt
 Ultrasonic ultrasonic2(5, 6);  // trig, echo del sensor del diposit d'aigua filtrada de color verd
@@ -27,6 +18,7 @@ int
    releon2 = 10,
    sensoron = 4,
    sensorblau = 3,
+   altura_on_iter = 0,
    start = 0;
 
 unsigned long 
@@ -35,6 +27,38 @@ unsigned long
   start_timer = 0,
   last_run_time = 0,
   current_time = 0;
+
+void prints(char *msg) {
+       Serial.print(current_time);
+       Serial.print(" ");
+       Serial.println(msg);
+}
+
+void bomba_altura(unsigned int action) {
+   if (action) {
+     digitalWrite(releon2,HIGH);  // Activamos el relé 2 y la bomba Altura
+     digitalWrite(rele2,HIGH);  // Activamos el relé 2 y la bomba Altura
+     prints("bomba_altura: on ");
+   }
+   else {
+     digitalWrite(rele2,LOW);
+     digitalWrite(releon2,LOW);
+     prints("bomba_altura: off ");
+   }
+}
+
+void bomba_aljub(unsigned int action) {
+   if (action) {
+     digitalWrite(releon1,HIGH);  // Activamos el relé 1 y la bomba Aljub
+     digitalWrite(rele1,HIGH);  // Activamos el relé 1 y la bomba Aljub
+     prints("bomba_aljub: on");
+   }
+   else {
+     digitalWrite(releon1,LOW);
+     digitalWrite(rele1,LOW);
+     prints("bomba_aljub: off");
+   }
+}
 
 void setup() 
 {   
@@ -57,6 +81,7 @@ void loop()
      distanciax = ultrasonic.Ranging(CM),
      distancia_verd = ultrasonic2.Ranging(CM);
   int blau_ple = ! digitalRead(sensorblau);
+
   Serial.print("distancia_dalt: ");
   Serial.println(distanciax);
   Serial.print("distancia_verd: ");
@@ -66,78 +91,53 @@ void loop()
   timer = millis();
   
   // Si deposit dalt buit i han pasat +10 segons des de ultim funcionament
-  if ( distanciax > 40  && last_run_time + 10000 < timer ) start = 1;
+  if ( ! start && distanciax >= distancia_dalt_max  && last_run_time + 10000 < timer ) {
+     start = 1;
+     prints("info: start");
+  }
 
-  if (start == 1)
-  {
+  if ( start ) {
     if (start_timer < 1) start_timer = timer;
     current_time = timer-start_timer;
     
     // Bomba Aljub ON si deposito verde vacio
-    if (distancia_verd >= 60 && ! blau_ple && (blau_ple_timer + 5000 < timer ))
-    {
-     digitalWrite(releon1,HIGH);  // Activamos el relé 1 y la bomba Aljub
-     digitalWrite(rele1,HIGH);  // Activamos el relé 1 y la bomba Aljub
-     Serial.print(current_time);
-     Serial.println(" bomba_aljub: on");
+    if (distancia_verd >= distancia_verd_min && ! blau_ple && (timer > blau_ple_timer + 10000 )) {
+     bomba_aljub(1);
      blau_ple_timer = 0;
     }
     
     // Paramos bomba Aljub si deposito verde lleno
-    if ((distancia_verd < 50 || blau_ple) && (blau_ple_timer == 0))
-    {
-     digitalWrite(releon1,LOW);
-     digitalWrite(rele1,LOW);
+    if ((distancia_verd < distancia_verd_min+10 || blau_ple) && ! blau_ple_timer) {
      blau_ple_timer = timer;
-     if  (blau_ple) {
-         Serial.print(current_time);
-         Serial.println(" deposit_blau: full");
-     }
-     else {
-          Serial.print(current_time);
-          Serial.println("deposit_verd: full");
-     }
-     Serial.print(current_time);
-     Serial.println(" aljub: off");
-    }
-    
-    // Bomba Altura
-     if ( distancia_verd < 50 )
-     {
-       digitalWrite(releon2,HIGH);  // Activamos el relé 2 y la bomba Altura
-       digitalWrite(rele2,HIGH);  // Activamos el relé 2 y la bomba Altura
-       Serial.print(current_time);
-       Serial.println(" bomba_altura: on ");
-      }
-      
-     if ( distancia_verd > 70 )
-     {
-       digitalWrite(rele2,LOW);  // Activamos el relé 2 y la bomba Altura
-       digitalWrite(releon2,LOW);  // Activamos el relé 2 y la bomba Altura
-       Serial.print(current_time);
-       Serial.println(" bomba_altura: off ");
-      }
-      
+     if (blau_ple)
+         prints("info: deposit_blau full");
+     else
+          prints("info: deposit_verd full");
+     bomba_aljub(0);
+    }    
   }
 
-  if ( distanciax < 20 )
-  {
+  // Bomba Altura (funcionament autonom)
+  if ( altura_on_iter > 2 && distancia_verd <= distancia_verd_min && distanciax >= distancia_dalt_min_limit ) {
+    altura_on_iter++;
+    bomba_altura(1);
+  }
+  if ( distancia_verd > distancia_verd_max || distanciax < distancia_dalt_min_limit) {
+    altura_on_iter = 0;
+    bomba_altura(0);
+  }
+
+  // Finalitzem funcionament (parem altura per seguretat tambe)
+  if ( distanciax < distancia_dalt_min && start ) {
        start = 0;
        blau_ple_timer = 0;
-       last_run_time = current_time;
+       last_run_time = timer;
        start_timer = 0;
-       distanciax = ultrasonic.Ranging(CM);
-       digitalWrite(rele1,LOW);   // Desactivamos el relé 1 y la bomba Aljub
-       digitalWrite(releon1,LOW);   // Desactivamos el relé 1 y la bomba Aljub
-       Serial.print(current_time);
-       Serial.println(" bomba_aljub: off");
-       
-       digitalWrite(rele2,LOW);   // Desactivamos el relé 2 y la bomba Altura
-       digitalWrite(releon2,LOW);   // Desactivamos el relé 2 y la bomba Altura
-       Serial.print(current_time);
-       Serial.println(" bomba_altura: off");
-  }
-     
-  delay(2000);
+       bomba_aljub(0);
+       bomba_altura(0);
+   }
+
+   if ( ! start ) prints("bomba_aljub: off");
+   delay(1500);
 }
 
