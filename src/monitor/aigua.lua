@@ -2,8 +2,7 @@
 
 json = require("luci.json")
 dbdir = "/root/db"
-fields = {"dalt_dist", "verd_dist",
-          "bomba_aljub", "bomba_altura"}
+fields = {"dalt_dist", "verd_dist"}
 
 function string:split( inSplitPattern, outResults )
   if not outResults then
@@ -37,6 +36,7 @@ function read_serial()
 	output.verd_dist = 0
 	output.bomba_aljub = 'off'
 	output.bomba_altura = 'off'
+    output.start = false
 	for _,l in ipairs(lines) do
 		local line = l:split(":")
 		if #line > 1 then 
@@ -51,13 +51,50 @@ function read_serial()
 				output.bomba_aljub = line[2]
 			elseif line[1] == "bomba_altura" then
 				output.bomba_altura = line[2]
+            elseif line[1] == "info" then
+                if line[2] == "start" then
+                    output.start = true
+                end
 			end
 		end
 	end
 	return output
 end
 
-function save_results(data)
+-- [ {"date":X1, value:"Y1"}, {"date":X2, value:"Y2"} ]
+function check_start(data)
+    local save = false
+    local jdata = nil
+    local f = io.open(dbdir..'/start','r')
+    if f ~= nil then
+        jdata = json.decode(f:read('*a'))
+        f:close()
+    end
+    -- save only changes
+    if jdata ~= nil then
+        if data["start"] and not jdata[#jdata].value then
+            jdata[#jdata+1] = { date = get_time(), value = true}
+            save = true
+        elseif not data["start"] and jdata[#jdata].value then
+            jdata[#jdata+1] = { date = get_time(), value = false}
+            save = true
+        end
+    end
+    if jdata == nil or f == nil then
+        if jdata == nil then
+            jdata = {{date = get_time(), value = data.start}}
+        end
+        save = true
+    end
+    if save then
+        f = io.open(dbdir..'/start','w')
+        f:write(json.encode(jdata))
+        print(json.encode(jdata))
+        f:close()
+    end
+end
+
+function save_distances(data)
     local f
     local output = {}
     local time = get_time()
@@ -89,9 +126,10 @@ info = os.getenv ("QUERY_STRING")
 print ("Content-type: application/json\n")
 serial = read_serial()
 
-if info == "update" then
-    save_results(serial)
-
+if info == "distances_update" then
+    save_distances(serial)
+elseif info == "start_update" then
+    check_start(serial)
 elseif info:find("stats=") ~= nil then
     fname = info:split('=')[2]
     f = io.open(dbdir..'/'..fname,'r')
