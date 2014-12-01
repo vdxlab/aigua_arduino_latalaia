@@ -80,7 +80,7 @@ void loop()
   long 
      distanciax = ultrasonic.Ranging(CM),
      distancia_verd = ultrasonic2.Ranging(CM);
-  int blau_ple = ! digitalRead(sensorblau);
+  int blau_ple = ( digitalRead(sensorblau) == 0 );
 
   Serial.print("distancia_dalt: ");
   Serial.println(distanciax);
@@ -104,10 +104,8 @@ void loop()
     if (distancia_verd >= distancia_verd_min && ! blau_ple && (timer > blau_ple_timer + 10000 )) {
      bomba_aljub(1);
      blau_ple_timer = 0;
-    }
-    
-    // Paramos bomba Aljub si deposito verde lleno
-    if ((distancia_verd < distancia_verd_min+10 || blau_ple) && ! blau_ple_timer) {
+    } else if ((distancia_verd < distancia_verd_min+10 || blau_ple) && ! blau_ple_timer) {
+      // Paramos bomba Aljub si deposito verde lleno
      blau_ple_timer = timer;
      if (blau_ple)
          prints("info: deposit_blau full");
@@ -118,10 +116,11 @@ void loop()
   }
 
   // Bomba Altura (funcionament autonom)
-  if ( altura_on_iter > 2 && distancia_verd <= distancia_verd_min && distanciax >= distancia_dalt_min_limit ) {
-    altura_on_iter++;
-    bomba_altura(1);
-  }
+  if ( distancia_verd <= distancia_verd_min && distanciax >= distancia_dalt_min_limit ) {
+    if ( altura_on_iter > 2 ) bomba_altura(1);
+    else altura_on_iter++;
+  } 
+  
   if ( distancia_verd > distancia_verd_max || distanciax < distancia_dalt_min_limit) {
     altura_on_iter = 0;
     bomba_altura(0);
