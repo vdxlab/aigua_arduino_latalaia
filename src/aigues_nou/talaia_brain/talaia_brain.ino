@@ -1,27 +1,36 @@
 #include <EtherCard.h>
 #include <LiquidCrystal.h>
-#include <Ultrasonic.h>
 #include <stdarg.h>
+#include <NewPing.h>
 
-// Sensors
-#define distancia_verd_max 85
-#define distancia_verd_min 60
-#define distancia_dalt_max 30
-#define distancia_dalt_min 10
-#define distancia_dalt_min_limit 5
-Ultrasonic ultrasonic(32,33);  // trig, echo del densor del diposit de dalt
-Ultrasonic ultrasonic2(30, 31);  // trig, echo del sensor del diposit d'aigua filtrada de color verd
-Ultrasonic ultrasonic_aljub(34, 35);  // trig, echo del sensor aljub
+#define distancia_verd_max 80
+#define distancia_verd_min 65
 
+#define distancia_dalt_max 35
+#define distancia_dalt_min 20
+#define distancia_dalt_min_limit 10
+
+#define dalt_radi 35
+#define verd_x 42
+#define verd_y 40
+
+#define aljub_y 365
+
+NewPing sonar_altura(32, 33, 200);
+NewPing sonar_filtre(30, 31, 200);
+NewPing sonar_aljub(34, 35, 500);
+
+//releon1 = 24,
 int 
    rele1 = 22,
-   releon1 = 24,
    rele2 = 26,
-   releon2 = 28,
+   releon = 28,
    sensorblau = 40,
    altura_on_iter = 0,
    start = 0,
-   blau_ple = 0;
+   blau_ple = 0,
+   is_bomba_altura_on = 0,
+   is_bomba_aljub_on = 0;
    
 unsigned long 
   timer = 0, 
@@ -33,8 +42,14 @@ unsigned long
 
 long
   distancia_verd = 0,
+  litres_verd = 0,
   distancia_aljub = 0,
-  distancia_dalt = 0;
+  litres_aljub = 0,
+  distancia_dalt = 0,
+  litres_dalt = 0;
+
+float
+  percent_aljub = 0;
 
 // ETHERNET
 static byte mymac[] = { 0x74,0x69,0x69,0x2D,0x30,0x31 };
@@ -63,25 +78,29 @@ void prints(char *msg) {
 
 void bomba_altura(unsigned int action) {
    if (action) {
-     digitalWrite(releon2,HIGH);  // Activamos el relé 2 y la bomba Altura
-     digitalWrite(rele2,HIGH);  // Activamos el relé 2 y la bomba Altura
+     digitalWrite(releon,LOW);  // Activamos el relé 2 y la bomba Altura
+     digitalWrite(rele2,LOW);  // Activamos el relé 2 y la bomba Altura
      prints("bomba_altura: on ");
+     is_bomba_altura_on = 1;
    }
    else {
-     digitalWrite(rele2,LOW);
-     digitalWrite(releon2,LOW);
+     is_bomba_altura_on = 0;
+     digitalWrite(rele2,HIGH);
+     if (! is_bomba_aljub_on) digitalWrite(releon,LOW);
    }
 }
 
 void bomba_aljub(unsigned int action) {
    if (action) {
-     digitalWrite(releon1,HIGH);  // Activamos el relé 1 y la bomba Aljub
-     digitalWrite(rele1,HIGH);  // Activamos el relé 1 y la bomba Aljub
+     digitalWrite(releon,LOW);  // Activamos el relé 1 y la bomba Aljub
+     digitalWrite(rele1,LOW);  // Activamos el relé 1 y la bomba Aljub
      prints("bomba_aljub: on");
+     is_bomba_aljub_on = 1;
    }
    else {
-     digitalWrite(releon1,LOW);
-     digitalWrite(rele1,LOW);
+     is_bomba_aljub_on = 0;
+     digitalWrite(rele1,HIGH);
+     if (! is_bomba_altura_on) digitalWrite(releon,LOW);
    }
 }
 
@@ -104,8 +123,10 @@ void setup()
  Serial.begin(9600);   
  pinMode(rele1,OUTPUT);
  pinMode(rele2,OUTPUT);
- pinMode(releon1,OUTPUT);
- pinMode(releon2,OUTPUT);
+ pinMode(releon,OUTPUT);
+ digitalWrite(rele1,HIGH);
+ digitalWrite(rele2,HIGH);
+// pinMode(releon2,OUTPUT);
  pinMode(sensorblau, INPUT_PULLUP); // 0/LOW = ON
 
  lcd.begin(16, 2);
@@ -126,12 +147,14 @@ static word homePage() {
   bfill = ether.tcpOffset();
   bfill.emit_p(PSTR(
     "HTTP/1.0 200 OK\r\n"
-    "Content-Type: text/json\r\n"
+    "Content-Type: application/json\r\n"
     "Pragma: no-cache\r\n"
     "\r\n"
-    "{\"distancia_dalt\":$D, \"distancia_verd\":$D,"
-    "\"distancia_aljub\":$D, \"time\":$L}"),
-      distancia_dalt, distancia_verd, distancia_aljub, t);
+    "{\"distancia_dalt\":$L, \"litres_dalt\":$L," 
+    "\"distancia_verd\":$L, \"litres_verd\":$L,"
+    "\"distancia_aljub\":$L, \"start\":$D, \"time\":$L}"),
+      distancia_dalt, litres_dalt, distancia_verd, litres_verd,
+      distancia_aljub, start, t);
   return bfill.position();
 }
 
@@ -153,6 +176,9 @@ void lcdmenu() {
      lcd.print("                 ");
      lcd.setCursor(0,1);
      lcd.print(distancia_dalt);
+     lcd.print("cm ");
+     lcd.print(litres_dalt);
+     lcd.print("L");
      break; 
    }
    case 2: {
@@ -161,6 +187,9 @@ void lcdmenu() {
      lcd.print("                 ");
      lcd.setCursor(0,1);
      lcd.print(distancia_verd);
+     lcd.print("cm ");
+     lcd.print(litres_verd);
+     lcd.print("L");
      break;
    }
    case 3: {
@@ -169,12 +198,16 @@ void lcdmenu() {
      lcd.print("                 ");
      lcd.setCursor(0,1);
      lcd.print(distancia_aljub);
+     lcd.print("cm ");
+     lcd.print(percent_aljub);
+     lcd.print("%");
+
      break;
    }
    case 4: {
-     lcd.print("  Encen bombes   ");
+     lcd.print("  Bombejar   ");
      lcd.setCursor(0,1);
-     lcd.print("SELECT per iniciar");
+     lcd.print("encen bombes");
      break;
    }
  }
@@ -219,15 +252,27 @@ static void netrun() {
 
 static void readsensors() {
   if(global_counter%10 == 0) {
-    distancia_dalt = ultrasonic.Ranging(CM);
+    distancia_dalt = sonar_altura.convert_cm(sonar_altura.ping_median(5));
+    litres_dalt = 3.14159 * dalt_radi * dalt_radi * (distancia_dalt_max-distancia_dalt) /1000;
     Serial.print("distancia_dalt: ");
     Serial.println(distancia_dalt);
-    distancia_verd = ultrasonic2.Ranging(CM);
+    Serial.print("litres_dalt: ");
+    Serial.println(litres_dalt);
+
+    distancia_verd = sonar_filtre.convert_cm(sonar_filtre.ping_median(5));
+    litres_verd = verd_x * verd_y * (distancia_verd_max-distancia_verd) /1000;
     Serial.print("distancia_verd: ");
     Serial.println(distancia_verd);
-    distancia_aljub = ultrasonic_aljub.Ranging(CM);
+    Serial.print("litres_verd: ");
+    Serial.println(litres_verd);
+
+    distancia_aljub = sonar_aljub.convert_cm(sonar_aljub.ping_median(5));
+    percent_aljub = ((aljub_y-distancia_aljub)*100)/aljub_y;
     Serial.print("distancia_aljub: ");
     Serial.println(distancia_aljub);
+    Serial.print("percent_aljub: ");
+    Serial.println(percent_aljub);
+    
     blau_ple = ( digitalRead(sensorblau) == 0 );
   }
 }
@@ -239,7 +284,6 @@ void loop() {
   readsensors();
   netrun();
   runlcd();
-  Serial.println(lcd_option);
  
   // Si deposit dalt buit i han pasat +10 segons des de ultim funcionament
   if ( ! start && distancia_dalt >= distancia_dalt_max  && last_run_time + 10000 < timer ) {
